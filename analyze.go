@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 )
 
@@ -12,22 +13,24 @@ const UnknownActionCaption = "Working"
 
 // Contains calculated information about an action. See TlEntity.Analyze()
 type Action struct {
-	Duration time.Duration
-	Message  string
-	Children []*Action
+	StartOffset      time.Duration
+	Duration         time.Duration
+	DurationPercents float64
+	Message          string
+	Children         []*Action
 }
 
 /*
 Returns a string with timings as a tree:
-	1.000453077s	Level 1
-		1.277µs	Working
-		800.303067ms	Level 2.1
-			500.166711ms	Working
-			300.122218ms	Level 3
-			14.138µs	Working
-		843ns	Working
-		200.143999ms	Level 2.2
-		3.891µs	Working
+	[100.0000%] Level 1		(1.000399975s: 0s ⟼ 1.000399975s)
+		[0.0001%] Working		(824ns: 0s ⟼ 824ns)
+		[79.9963%] Level 2.1		(800.282978ms: 824ns ⟼ 800.283802ms)
+			[62.4931%] Working		(500.121338ms: 0s ⟼ 500.121338ms)
+			[37.5065%] Level 3		(300.157855ms: 500.121338ms ⟼ 800.279193ms)
+			[0.0005%] Working		(3.785µs: 800.279193ms ⟼ 800.282978ms)
+		[0.0001%] Working		(765ns: 800.283802ms ⟼ 800.284567ms)
+		[20.0032%] Level 2.2		(200.11168ms: 800.284567ms ⟼ 1.000396247s)
+		[0.0004%] Working		(3.728µs: 1.000396247s ⟼ 1.000399975s)
 */
 func (a *Action) String() string {
 	buf := &bytes.Buffer{}
@@ -45,55 +48,68 @@ func (a *Action) Print(w io.Writer, offsetStr string) error {
 	return err
 }
 
-func (a *Action) print(w io.Writer, offsetStr string, offset int) error {
+func (a *Action) print(buf *bytes.Buffer, offsetStr string, offset int) {
 	for i := 0; i < offset; i++ {
-		if _, err := w.Write([]byte(offsetStr)); err != nil {
-			return err
-		}
+		buf.WriteString(offsetStr)
 	}
 
-	if _, err := w.Write([]byte(a.Duration.String() + "\t" + a.Message + "\n")); err != nil {
-		return err
-	}
+	buf.WriteByte('[')
+	buf.WriteString(strconv.FormatFloat(a.DurationPercents, 'f', 4, 64))
+	buf.WriteString("%] ")
+	buf.WriteString(a.Message)
+	buf.WriteString("\t\t(")
+	buf.WriteString(a.Duration.String())
+	buf.WriteString(": ")
+	buf.WriteString(a.StartOffset.String())
+	buf.WriteString(" ⟼ ")
+	buf.WriteString((a.StartOffset + a.Duration).String())
+	buf.WriteString(")\n")
 
 	for _, child := range a.Children {
-		if err := child.print(w, offsetStr, offset+1); err != nil {
-			return err
-		}
+		child.print(buf, offsetStr, offset+1)
 	}
-
-	return nil
 }
 
 // Returns calculated information about actions.
 func (e *TlEntity) Analyze() *Action {
 	res := &Action{
-		Duration: e.finish.Sub(e.start),
-		Message:  getMessage(e.message),
+		Duration:         e.finish.Sub(e.start),
+		DurationPercents: 100.0,
+		Message:          getMessage(e.message),
 	}
 
 	if len(e.children) > 0 {
 		beforeDuration := e.children[0].start.Sub(e.start)
 		if beforeDuration > 0 {
 			res.Children = append(res.Children, &Action{
-				Duration: beforeDuration,
-				Message:  UnknownActionCaption,
+				Duration:         beforeDuration,
+				StartOffset:      0,
+				DurationPercents: float64(beforeDuration) / float64(res.Duration) * 100.0,
+				Message:          UnknownActionCaption,
 			})
 		}
 
 		for i, child := range e.children {
-			res.Children = append(res.Children, child.Analyze())
+			analyzedChild := child.Analyze()
+			analyzedChild.StartOffset = child.start.Sub(e.start)
+			analyzedChild.DurationPercents = float64(analyzedChild.Duration) / float64(res.Duration) * 100.0
 
-			var afterDuration time.Duration
+			res.Children = append(res.Children, analyzedChild)
+
+			var afterDuration, startOffset time.Duration
 			if i == len(e.children)-1 { // A last element
 				afterDuration = e.finish.Sub(child.finish)
+				startOffset = e.children[i].finish.Sub(e.start)
 			} else {
 				afterDuration = e.children[i+1].start.Sub(child.finish)
+				startOffset = child.finish.Sub(e.start)
 			}
 			if afterDuration > 0 {
 				res.Children = append(res.Children, &Action{
-					Duration: afterDuration,
-					Message:  UnknownActionCaption,
+					Duration:         afterDuration,
+					StartOffset:      startOffset,
+					DurationPercents: float64(afterDuration) / float64(res.Duration) * 100.0,
+					Message:          UnknownActionCaption,
 				})
 			}
 		}

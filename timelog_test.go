@@ -26,12 +26,16 @@ func TestTL(t *testing.T) {
 	assert.Equal(t, tl.children[1].finish, tl.children[1].children[0].finish)
 
 	action := tl.Analyze()
-	assert.Regexp(t, `^\S+	Level 1
-	\S+	Working
-	\S+	Level 2.1
-	\S+	Working
-	\S+	Level 2.2
-		\S+	Working
-		\S+	Level 3
-	\S+	Working`, action.String())
+
+	rowHeaderRe := `\[\d+\.\d+%\] `
+	rowFooterRe := `\t\t\(\S+: \S+ ⟼ \S+\)\n`
+	assert.Regexp(t, "^"+rowHeaderRe+"Level 1"+rowFooterRe+
+		"	"+rowHeaderRe+"Working"+rowFooterRe+
+		"	"+rowHeaderRe+"Level 2.1"+rowFooterRe+
+		"	"+rowHeaderRe+"Working"+rowFooterRe+
+		"	"+rowHeaderRe+"Level 2.2"+rowFooterRe+
+		"		"+rowHeaderRe+"Working"+rowFooterRe+
+		"		"+rowHeaderRe+"Level 3"+rowFooterRe+
+		"	"+rowHeaderRe+"Working"+rowFooterRe+
+		"", action.String())
 }
