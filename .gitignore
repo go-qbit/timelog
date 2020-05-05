@@ -70,4 +70,3 @@ _testmain.go
 *.prof
 
 /vendor
-/glide.lock

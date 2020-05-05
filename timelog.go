@@ -2,8 +2,13 @@ package timelog
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/opentracing/opentracing-go"
 )
+
+var WithOpenTracing = false
 
 const tl_ctx_key = "tl_ctx_key"
 
@@ -13,12 +18,16 @@ type TlEntity struct {
 	start    time.Time
 	finish   time.Time
 	message  interface{}
+	otSpan   opentracing.Span
 	parent   *TlEntity
 	children []*TlEntity
 }
 
 func (e *TlEntity) finishAll(t time.Time) {
 	if e.finish.IsZero() {
+		if WithOpenTracing {
+			e.otSpan.Finish()
+		}
 		e.finish = t
 	}
 	for _, child := range e.children {
@@ -31,6 +40,10 @@ func Start(ctx context.Context, msg interface{}) context.Context {
 	tl := &TlEntity{
 		start:   time.Now(),
 		message: msg,
+	}
+
+	if WithOpenTracing {
+		tl.otSpan, ctx = opentracing.StartSpanFromContext(ctx, fmt.Sprintf("%s", msg))
 	}
 
 	if ctxTl := ctx.Value(tl_ctx_key); ctxTl != nil {
